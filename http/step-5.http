@@ -1,0 +1,43 @@
+@base = http://localhost:8080
+
+### 1. 토큰 발급: 200 {accessToken(15분), refreshToken(7일)}
+POST {{base}}/api/v1/auth/token
+Content-Type: application/json
+
+{"loginId":"kdt01","password":"kdt1234"}
+
+> {%
+    client.global.set("access", response.body.accessToken);
+    client.global.set("refresh", response.body.refreshToken);
+%}
+
+### 2. access로 내 정보: 200
+GET {{base}}/api/v1/auth/me
+Authorization: Bearer {{access}}
+
+### 3. refresh를 Bearer로: 401 (tokenType=refresh라 parseAccess가 거절)
+GET {{base}}/api/v1/auth/me
+Authorization: Bearer {{refresh}}
+
+### 4. 재발급: 200 새 access·refresh (비밀번호 없이)
+POST {{base}}/api/v1/auth/token/refresh
+Content-Type: application/json
+
+{"refreshToken":"{{refresh}}"}
+
+> {%
+    client.global.set("access", response.body.accessToken);
+    client.global.set("refresh", response.body.refreshToken);
+%}
+
+### 5. access로 재발급 시도: 401 (tokenType=access라 parseRefresh가 거절)
+POST {{base}}/api/v1/auth/token/refresh
+Content-Type: application/json
+
+{"refreshToken":"{{access}}"}
+
+### 6. 빈 refresh: 400 INVALID_INPUT
+POST {{base}}/api/v1/auth/token/refresh
+Content-Type: application/json
+
+{}

@@ -61,14 +61,45 @@ class StepTest {
     }
 
     @Test
-    void problem_singleTokenLivesForOneDay() throws Exception {
+    void accessIsShortAndRefreshIsLong() throws Exception {
+        TokenPair tokens = issue();
+        assertEquals(900, lifetime(jwtService.parseAccess(tokens.access())));
+        assertEquals(604800, lifetime(jwtService.parseRefresh(tokens.refresh())));
+    }
+
+    @Test
+    void refreshCannotBeUsedAsBearer() throws Exception {
+        mvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + issue().refresh()))
+           .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void refreshIssuesNewPairButAccessCannotRefresh() throws Exception {
+        TokenPair tokens = issue();
+        mvc.perform(post("/api/v1/auth/token/refresh").contentType("application/json")
+                       .content("{\"refreshToken\":\"" + tokens.refresh() + "\"}"))
+           .andExpect(status().isOk())
+           .andExpect(jsonPath("$.accessToken").isNotEmpty())
+           .andExpect(jsonPath("$.refreshToken").isNotEmpty());
+        mvc.perform(post("/api/v1/auth/token/refresh").contentType("application/json")
+                       .content("{\"refreshToken\":\"" + tokens.access() + "\"}"))
+           .andExpect(status().isUnauthorized());
+    }
+
+    private record TokenPair(String access, String refresh) {
+    }
+
+    private TokenPair issue() throws Exception {
         String body = mvc.perform(post("/api/v1/auth/token").contentType("application/json")
                                      .content("{\"loginId\":\"kdt01\",\"password\":\"kdt1234\"}"))
                          .andExpect(status().isOk())
                          .andReturn().getResponse().getContentAsString();
-        Claims claims = jwtService.parseAccess(json.readTree(body).get("accessToken").asString());
-        long lifetime = (claims.getExpiration().getTime() - claims.getIssuedAt().getTime()) / 1000;
-        assertEquals(86400, lifetime);
+        var node = json.readTree(body);
+        return new TokenPair(node.get("accessToken").asString(), node.get("refreshToken").asString());
+    }
+
+    private long lifetime(Claims claims) {
+        return (claims.getExpiration().getTime() - claims.getIssuedAt().getTime()) / 1000;
     }
 
     private String bearer(String loginId) {

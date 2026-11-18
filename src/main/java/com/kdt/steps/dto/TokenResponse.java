@@ -1,6 +1,7 @@
 package com.kdt.steps.dto;
 
 public record TokenResponse(
-        String accessToken
+        String accessToken,
+        String refreshToken
 ) {
 }

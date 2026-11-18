@@ -11,4 +11,5 @@ spring:
 kdt:
   jwt:
     secret: ${JWT_SECRET:w3Z8ZaMHKgG0SNmBB4iEy2edPvaSJU5ds614ToZwfGjVVyLZ}
-    access-seconds: 86400
+    access-seconds: 900
+    refresh-seconds: 604800

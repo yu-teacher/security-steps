@@ -34,7 +34,7 @@ public class SecurityConfig {
                 .logout(logout -> logout.disable())
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/error").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/token").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/token", "/api/v1/auth/token/refresh").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/posts", "/api/v1/posts/**").permitAll()
                         .requestMatchers("/api/v1/auth/me").authenticated()
                         .requestMatchers("/api/v1/posts", "/api/v1/posts/**").authenticated()

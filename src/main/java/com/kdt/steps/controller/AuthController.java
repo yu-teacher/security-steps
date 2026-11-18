@@ -2,6 +2,7 @@ package com.kdt.steps.controller;
 
 import com.kdt.steps.dto.LoginRequest;
 import com.kdt.steps.dto.MeResponse;
+import com.kdt.steps.dto.RefreshRequest;
 import com.kdt.steps.dto.TokenResponse;
 import com.kdt.steps.service.AuthService;
 import jakarta.validation.Valid;
@@ -18,6 +19,11 @@ public class AuthController {
     @PostMapping("/token")
     public TokenResponse issueTokens(@Valid @RequestBody LoginRequest request) {
         return authService.issueTokens(request);
+    }
+
+    @PostMapping("/token/refresh")
+    public TokenResponse refresh(@Valid @RequestBody RefreshRequest request) {
+        return authService.refresh(request);
     }
 
     @GetMapping("/me")
