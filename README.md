@@ -1,12 +1,12 @@
 # security-steps
 
-검증이 전혀 없는 글 API에서 시작해 문제를 하나씩 해결하며 최종 인증 구조까지 가는 연습 프로젝트입니다. 브랜치 하나가 한 단계입니다.
+검증이 하나도 없는 글 API에서 시작해, **문제를 하나씩 해결하며** Spring Security + JWT + HttpOnly 쿠키 + refresh 회전 구조까지 가는 학습 프로젝트입니다.
 
-실행 `./gradlew bootRun` (H2 메모리 DB, step-1부터 계정 kdt01·kdt02 / kdt1234) · 테스트 `./gradlew test` · 요청 파일 `http/`
+- 브랜치 하나 = 한 단계 (`step-0` ~ `step-8`)
+- 단계마다 **이전 단계가 남긴 문제**를 해결하고, 해결하면서 생긴 **새 문제**를 다음 단계로 넘깁니다.
+- `main`은 최종 상태(`step-8`)에 이 사용법 문서를 더한 브랜치입니다.
 
-**비교 학습 PDF**: `docs/security-steps.pdf` (모든 단계의 변경을 한 파일로. 다시 만들기: `python3 docs/build_pdf.py`)
-
-**스터디 발표 자료**: `docs/security-steps-study.pptx` (발표자 노트 포함)
+## 로드맵
 
 | 단계 | 문제 | 해결 | 얻은 것 | 잃은 것 |
 |---|---|---|---|---|
@@ -18,66 +18,63 @@
 | step-5 | 긴 토큰 탈취 | access 15분 + refresh 7일 | access 노출 시간 축소 | refresh 저장 위치 문제 |
 | step-6 | refresh가 XSS로 읽힘 | refresh를 HttpOnly 쿠키로 | JS가 refresh를 못 읽음 | 쿠키 자동 전송(CSRF) |
 | step-7 | CSRF | SameSite + Origin + CORS | 다른 사이트 요청 차단 | 복사된 refresh 폐기 불가 |
-| **step-8** | refresh 폐기 불가 | refresh 회전 + 서버 저장 | 재사용 탐지, 서버 로그아웃 | 다시 서버 상태(DB 조회) |
+| step-8 | refresh 폐기 불가 | refresh 회전 + 서버 저장 | 재사용 탐지, 서버 로그아웃 | 다시 서버 상태(DB 조회) |
 
-`git diff step-0 step-1`처럼 이웃 단계를 비교하면 그 단계에서 바뀐 코드만 보입니다.
+## 준비
 
----
+- JDK 21, Git (DB 설치는 필요 없습니다. H2 메모리 DB를 씁니다.)
+- IntelliJ IDEA 권장 (`.http` 요청 파일을 바로 실행할 수 있습니다)
 
-## step-8: refresh를 서버에 저장하고, 쓸 때마다 바꾼다
-
-**이전 문제**: 복사된 refresh를 서버가 폐기할 수 없음
-**해결**: refresh의 `jti`를 DB에 저장한다. 재발급하면 옛 refresh를 폐기하고 새 refresh를 저장한다(회전). 폐기된 refresh가 다시 오면 탈취로 보고 그 회원의 refresh를 전부 폐기한다.
-
-**파일** (`git diff step-7 step-8`)
-- `RefreshToken`, `RefreshTokenRepository`: jti, loginId, 만료, 폐기 여부
-- `AuthService`: 발급 시 저장, 재발급 시 회전·재사용 탐지, `logout`
-- `AuthController.logoutCookie`: 쿠키 삭제 + 서버 폐기
-
-**요청 흐름**
+```bash
+git clone https://github.com/yu-teacher/security-steps.git
+cd security-steps
+git checkout step-0
 ```
-POST /token/refresh {R1} → R1 폐기, R2 저장 → 200
-POST /token/refresh {R1} → 이미 폐기됨 → kdt01의 refresh 전부 폐기 → 401 (R2도 이제 401)
-POST /logout-cookie (Cookie R2) → R2 폐기 + 쿠키 삭제
+
+## 한 단계를 공부하는 순서
+
+1. **브랜치 이동**: `git checkout step-N`
+2. **README 읽기**: 맨 위 로드맵과 이번 단계 섹션(이전 문제 → 해결 → 남은 문제)
+3. **바뀐 코드 보기**: `git diff step-(N-1) step-N -- src/main`
+   또는 [`docs/security-steps.pdf`](docs/security-steps.pdf)의 해당 장. 터미널 diff가 낯설면 PDF가 더 읽기 쉽습니다.
+4. **직접 실행**: `./gradlew bootRun` 후 `http/step-N.http`의 요청을 위에서부터 보내 봅니다.
+5. **테스트로 확인**: `./gradlew test`. 테스트 이름이 그 단계의 규칙입니다. `problem_`으로 시작하는 테스트는 **아직 해결되지 않은 문제**를 일부러 보여줍니다.
+6. **남은 문제 확인** 후 다음 단계로
+
+## 자주 쓰는 명령
+
+```bash
+git checkout step-3
 ```
-재사용을 탐지했을 때 401을 던져도 폐기 결과는 저장돼야 하므로 `@Transactional(noRollbackFor = TokenFailedException.class)`를 씁니다.
-같은 refresh로 동시에 두 번 요청하면 둘 다 "아직 폐기 안 됨"을 볼 수 있으므로, `findByJti`에 행 잠금(`@Lock(PESSIMISTIC_WRITE)`)을 걸어 한 요청만 통과시킵니다.
 
-**확인**: `http/step-8.http` · `StepTest.rotatedRefreshCannotBeReused`, `reuseRevokesAllRefreshOfMember`, `concurrentReuseLetsOnlyOneThrough`, `logoutRevokesRefreshOnServer`
+```bash
+git diff step-2 step-3 -- src/main
+```
 
-## 결론
+```bash
+git diff --stat step-2 step-3
+```
 
-세션 쿠키를 피해 토큰으로 갔지만, refresh를 지키려다 다시 쿠키를 쓰게 됐고, refresh를 회전·폐기하려다 다시 서버 상태(DB)가 필요해졌습니다. 그래서 최종 구조는 **매 요청은 무상태 access, 재발급만 서버가 기억하는 refresh 쿠키**인, 세션과 토큰을 섞은 형태입니다. HttpOnly는 refresh를 **읽지 못하게** 할 뿐이고 XSS 자체를 막지는 못합니다.
+```bash
+./gradlew bootRun
+```
 
-## 최종 파일 지도
+```bash
+./gradlew test
+```
 
-| 파일 | 단계 | 해결한 문제 |
-|---|---|---|
-| `Post`, `PostService`, `PostApiController` | 0 | 글 API |
-| `Member`, `PasswordConfig`, `PostService.ownPost` | 1 | 회원·비밀번호 해시, 작성자만 수정·삭제 (401 → 404 → 403) |
-| `SessionStore` | 2 (3에서 삭제) | 서버가 로그인 기억 → `HttpSession`으로 대체 |
-| `MemberUserDetailsService`, `AuthenticationManagerConfig`, `PasswordAuthenticationService` | 3 | 비밀번호 확인을 Spring Security에 위임 |
-| `SecurityConfig` | 3 → 4 → 5 → 6 → 7 | URL 규칙·401/403 / STATELESS·필터 / 경로 / CORS |
-| `JwtService` | 4 → 5 | 저장 없이 신원 확인 / access·refresh 구분 |
-| `JwtAuthFilter` | 4 | Bearer → `@AuthenticationPrincipal` |
-| `TokenResponse`, `RefreshRequest` | 5 | 비밀번호 없이 재발급 |
-| `CookieAuthWriter`, `AccessTokenResponse` | 6 → 7 | refresh를 HttpOnly 쿠키로 / SameSite |
-| `CookieOriginConfig`, `SecurityCorsConfig` | 7 | 쿠키 요청 출처 확인 |
-| `RefreshToken`, `RefreshTokenRepository`, `AuthService` | 8 | refresh 회전·재사용 탐지·서버 로그아웃 |
+- IntelliJ: 오른쪽 아래 Git 브랜치 위젯에서 브랜치를 바꾸고, 브랜치를 우클릭 → **Compare with Current**로 두 단계를 나란히 비교할 수 있습니다.
+- 계정: step-1부터 `kdt01` / `kdt1234`, `kdt02` / `kdt1234` (서버를 켤 때마다 다시 만들어집니다)
 
-## 남은 과제
+## 주의
 
-| 과제 | 지금 상태 | 방향 |
-|---|---|---|
-| XSS 자체 방어 | HttpOnly는 읽기만 막음 | 출력 이스케이프(`textContent`), CSP |
-| 로그아웃 후 access | 최대 15분 유효 | 감수하거나 블랙리스트 |
-| 만료된 refresh 행 | DB에 계속 쌓임 | 스케줄러로 정리 |
-| 여러 기기 로그인 | 재사용을 탐지하면 전부 폐기 | 기기별 refresh 관리 |
-| 로그인 시도 제한 | 없음 | 실패 횟수 제한·지연 |
-| 운영 환경 | `Secure=false`, http | `Secure=true`, HTTPS |
+- 코드를 고쳐 보며 공부했다면 다른 단계로 가기 전에 `git stash` 또는 `git restore .`로 정리하세요. 고친 채로 브랜치를 바꾸면 변경이 따라오거나 이동이 막힙니다.
+- H2 메모리 DB라 서버를 끄면 글과 토큰 데이터가 모두 사라집니다.
+- `application.yml`의 JWT 비밀키는 **학습용 기본값**입니다. 실제 서비스에서는 환경 변수 `JWT_SECRET`으로 바꿔야 합니다.
+- 쿠키는 `Secure=false`(로컬 http용)입니다. 운영 환경에서는 HTTPS와 `Secure=true`가 필요합니다.
 
-## 다음 과정 예고
+## 문서
 
-- 비밀번호를 우리 서버가 아예 받지 않는다면, 누가 신원을 확인할까?
-- 카카오가 "이 사람 맞다"고 해 주면, 그 사람은 우리 회원 테이블의 누구일까?
-- 그때도 지금 만든 access/refresh 구조를 그대로 쓸 수 있을까?
+- [`docs/security-steps.pdf`](docs/security-steps.pdf): 모든 단계의 변경 코드를 색으로 표시한 비교 학습 자료 (모든 브랜치에 같은 파일)
+- 다시 만들기: `python3 docs/build_pdf.py` (Chrome 필요)
+- 최종 단계의 결론·남은 과제·다음 과정 예고는 `step-8` 브랜치 README 끝에 있습니다.
