@@ -6,7 +6,7 @@ import com.kdt.steps.dto.PostResponse;
 import com.kdt.steps.dto.PostWriteRequest;
 import com.kdt.steps.exception.ForbiddenException;
 import com.kdt.steps.exception.NotFoundException;
-import com.kdt.steps.exception.UnauthorizedException;
+import com.kdt.steps.exception.TokenFailedException;
 import com.kdt.steps.repository.MemberRepository;
 import com.kdt.steps.repository.PostRepository;
 import lombok.RequiredArgsConstructor;
@@ -51,7 +51,7 @@ public class PostService {
 
     private Member caller(String loginId) {
         return memberRepository.findByLoginId(loginId)
-                               .orElseThrow(() -> new UnauthorizedException("unknown member"));
+                               .orElseThrow(TokenFailedException::new);
     }
 
     private Post ownPost(String loginId, Long id) {
