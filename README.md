@@ -16,31 +16,34 @@
 | step-3 | 직접 만든 세션의 반복 코드·구멍 | Spring Security + HttpSession | 검증된 인증·인가 흐름 | 서버 상태, CSRF 토큰 필요 |
 | step-4 | 서버가 세션 저장 | JWT + JwtAuthFilter | 무상태, 헤더라 CSRF 없음 | 털리면 만료까지 유효 |
 | step-5 | 긴 토큰 탈취 | access 15분 + refresh 7일 | access 노출 시간 축소 | refresh 저장 위치 문제 |
-| **step-6** | refresh가 XSS로 읽힘 | refresh를 HttpOnly 쿠키로 | JS가 refresh를 못 읽음 | 쿠키 자동 전송(CSRF) |
-| step-7 | CSRF | SameSite + Origin + CORS | 다른 사이트 요청 차단 | 복사된 refresh 폐기 불가 |
+| step-6 | refresh가 XSS로 읽힘 | refresh를 HttpOnly 쿠키로 | JS가 refresh를 못 읽음 | 쿠키 자동 전송(CSRF) |
+| **step-7** | CSRF | SameSite + Origin + CORS | 다른 사이트 요청 차단 | 복사된 refresh 폐기 불가 |
 | step-8 | refresh 폐기 불가 | refresh 회전 + 서버 저장 | 재사용 탐지, 서버 로그아웃 | 다시 서버 상태(DB 조회) |
 
 `git diff step-0 step-1`처럼 이웃 단계를 비교하면 그 단계에서 바뀐 코드만 보입니다.
 
 ---
 
-## step-6: refresh는 JS가 못 읽는 HttpOnly 쿠키로
+## step-7: 쿠키 요청은 출처를 확인한다
 
-**이전 문제**: refresh를 JS 저장소에 두면 XSS로 읽힘
-**해결**: refresh는 `Set-Cookie`(HttpOnly, Path=/api/v1/auth)로 주고, 응답 JSON에는 access만 담는다.
+**이전 문제**: 쿠키 자동 전송(CSRF)
+**해결**: 세 겹으로 막는다.
 
-**파일** (`git diff step-5 step-6`)
-- `CookieAuthWriter`: `writeRefresh`, `clearRefresh`
-- `AccessTokenResponse`: access만 담는 응답
-- `AuthController`: `/token-cookie`, `/token/refresh-cookie`, `/logout-cookie` (JSON `/token`은 앱 등 비브라우저용으로 유지)
+| 방어 | 막는 주체 | 내용 |
+|---|---|---|
+| `SameSite=Lax` | 브라우저 | 다른 사이트의 POST에 쿠키를 안 붙임 |
+| CORS | 브라우저 + `CorsFilter` | 허용 안 된 Origin이면 403 |
+| `CookieOriginConfig` | 서버 | 쿠키 경로 3개에서 Origin이 없거나 목록 밖이면 403 |
+
+**파일** (`git diff step-6 step-7`): `CookieAuthWriter`(+SameSite), `CookieOriginConfig`, `SecurityCorsConfig`, `SecurityConfig`(+cors, OPTIONS)
 
 **요청 흐름**
 ```
-POST /token-cookie → {accessToken} + Set-Cookie: refreshToken; HttpOnly; Path=/api/v1/auth
-POST /token/refresh-cookie → 브라우저가 쿠키 자동 첨부 → 새 access + 새 쿠키
-POST /logout-cookie → Max-Age=0 (브라우저 쿠키만 삭제)
+POST /token/refresh-cookie
+  CorsFilter(외부 Origin 403) → CookieOriginConfig(Origin 없음 403) → AuthController
 ```
+`csrf.disable()`은 그대로 둡니다. 쿠키로 인증하는 곳은 이 3개 경로뿐이고, 여기는 CSRF 토큰 대신 Origin 검사와 SameSite로 막습니다.
 
-**확인**: `http/step-6.http` · `StepTest.cookieLoginHidesRefreshFromJs`
+**확인**: `http/step-7.http` · `StepTest.cookieRequestWithoutOriginIsRejectedByOriginCheck`, `cookieRequestFromOtherOriginIsRejectedByCors`
 
-**남은 문제**: 쿠키는 다른 사이트에서 보낸 요청에도 자동으로 붙습니다(CSRF, `problem_cookieIsSentFromAnyOrigin`). step-3에서 겪은 문제가 다시 돌아왔습니다.
+**남은 문제**: 서버가 refresh를 저장하지 않아, 이미 복사된 refresh는 로그아웃해도 7일간 쓸 수 있습니다.

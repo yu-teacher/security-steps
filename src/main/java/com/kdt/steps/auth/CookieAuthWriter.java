@@ -12,6 +12,7 @@ import java.time.Duration;
 public class CookieAuthWriter {
     public static final String REFRESH = "refreshToken";
     private static final String REFRESH_PATH = "/api/v1/auth";
+    private static final String SAME_SITE = "Lax";
 
     private final Duration refreshMaxAge;
 
@@ -32,6 +33,7 @@ public class CookieAuthWriter {
                              .httpOnly(true)
                              .secure(false)
                              .path(REFRESH_PATH)
+                             .sameSite(SAME_SITE)
                              .maxAge(maxAge)
                              .build();
     }
