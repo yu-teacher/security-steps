@@ -77,4 +77,5 @@ git diff --stat step-2 step-3
 
 - [`docs/security-steps.pdf`](docs/security-steps.pdf): 모든 단계의 변경 코드를 색으로 표시한 비교 학습 자료 (모든 브랜치에 같은 파일)
 - 다시 만들기: `python3 docs/build_pdf.py` (Chrome 필요)
+- [`docs/security-steps-study.pptx`](docs/security-steps-study.pptx): step-0~8을 한 번에 다루는 스터디 발표 자료 50장. 단계마다 생각해볼 질문이 있고, 발표자 노트에 진행 방법과 예상 답변이 들어 있습니다.
 - 최종 단계의 결론·남은 과제·다음 과정 예고는 `step-8` 브랜치 README 끝에 있습니다.
