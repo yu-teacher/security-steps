@@ -8,6 +8,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import tools.jackson.databind.json.JsonMapper;
 
 import static org.hamcrest.Matchers.containsString;
@@ -148,6 +154,57 @@ class StepTest {
                        .header("Origin", "https://evil.example")
                        .header("Access-Control-Request-Method", "POST"))
            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void rotatedRefreshCannotBeReused() throws Exception {
+        TokenPair first = issue();
+        refresh(first.refresh()).andExpect(status().isOk());
+        refresh(first.refresh()).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void reuseRevokesAllRefreshOfMember() throws Exception {
+        TokenPair first = issue();
+        String body = refresh(first.refresh()).andExpect(status().isOk())
+                                             .andReturn().getResponse().getContentAsString();
+        String second = json.readTree(body).get("refreshToken").asString();
+        refresh(first.refresh()).andExpect(status().isUnauthorized());
+        refresh(second).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void concurrentReuseLetsOnlyOneThrough() throws Exception {
+        String refreshToken = issue().refresh();
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            List<Future<Integer>> results = List.of(
+                    pool.submit(() -> { start.await(); return refresh(refreshToken).andReturn().getResponse().getStatus(); }),
+                    pool.submit(() -> { start.await(); return refresh(refreshToken).andReturn().getResponse().getStatus(); }));
+            start.countDown();
+            List<Integer> statuses = new ArrayList<>();
+            for (Future<Integer> result : results) {
+                statuses.add(result.get());
+            }
+            assertEquals(List.of(200, 401), statuses.stream().sorted().toList());
+        } finally {
+            pool.shutdown();
+        }
+    }
+
+    @Test
+    void logoutRevokesRefreshOnServer() throws Exception {
+        String refreshToken = issue().refresh();
+        mvc.perform(post("/api/v1/auth/logout-cookie").header("Origin", ORIGIN)
+                       .cookie(new Cookie("refreshToken", refreshToken)))
+           .andExpect(status().isNoContent());
+        refresh(refreshToken).andExpect(status().isUnauthorized());
+    }
+
+    private org.springframework.test.web.servlet.ResultActions refresh(String refreshToken) throws Exception {
+        return mvc.perform(post("/api/v1/auth/token/refresh").contentType("application/json")
+                              .content("{\"refreshToken\":\"" + refreshToken + "\"}"));
     }
 
     private record TokenPair(String access, String refresh) {

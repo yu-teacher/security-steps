@@ -17,33 +17,67 @@
 | step-4 | 서버가 세션 저장 | JWT + JwtAuthFilter | 무상태, 헤더라 CSRF 없음 | 털리면 만료까지 유효 |
 | step-5 | 긴 토큰 탈취 | access 15분 + refresh 7일 | access 노출 시간 축소 | refresh 저장 위치 문제 |
 | step-6 | refresh가 XSS로 읽힘 | refresh를 HttpOnly 쿠키로 | JS가 refresh를 못 읽음 | 쿠키 자동 전송(CSRF) |
-| **step-7** | CSRF | SameSite + Origin + CORS | 다른 사이트 요청 차단 | 복사된 refresh 폐기 불가 |
-| step-8 | refresh 폐기 불가 | refresh 회전 + 서버 저장 | 재사용 탐지, 서버 로그아웃 | 다시 서버 상태(DB 조회) |
+| step-7 | CSRF | SameSite + Origin + CORS | 다른 사이트 요청 차단 | 복사된 refresh 폐기 불가 |
+| **step-8** | refresh 폐기 불가 | refresh 회전 + 서버 저장 | 재사용 탐지, 서버 로그아웃 | 다시 서버 상태(DB 조회) |
 
 `git diff step-0 step-1`처럼 이웃 단계를 비교하면 그 단계에서 바뀐 코드만 보입니다.
 
 ---
 
-## step-7: 쿠키 요청은 출처를 확인한다
+## step-8: refresh를 서버에 저장하고, 쓸 때마다 바꾼다
 
-**이전 문제**: 쿠키 자동 전송(CSRF)
-**해결**: 세 겹으로 막는다.
+**이전 문제**: 복사된 refresh를 서버가 폐기할 수 없음
+**해결**: refresh의 `jti`를 DB에 저장한다. 재발급하면 옛 refresh를 폐기하고 새 refresh를 저장한다(회전). 폐기된 refresh가 다시 오면 탈취로 보고 그 회원의 refresh를 전부 폐기한다.
 
-| 방어 | 막는 주체 | 내용 |
-|---|---|---|
-| `SameSite=Lax` | 브라우저 | 다른 사이트의 POST에 쿠키를 안 붙임 |
-| CORS | 브라우저 + `CorsFilter` | 허용 안 된 Origin이면 403 |
-| `CookieOriginConfig` | 서버 | 쿠키 경로 3개에서 Origin이 없거나 목록 밖이면 403 |
-
-**파일** (`git diff step-6 step-7`): `CookieAuthWriter`(+SameSite), `CookieOriginConfig`, `SecurityCorsConfig`, `SecurityConfig`(+cors, OPTIONS)
+**파일** (`git diff step-7 step-8`)
+- `RefreshToken`, `RefreshTokenRepository`: jti, loginId, 만료, 폐기 여부
+- `AuthService`: 발급 시 저장, 재발급 시 회전·재사용 탐지, `logout`
+- `AuthController.logoutCookie`: 쿠키 삭제 + 서버 폐기
 
 **요청 흐름**
 ```
-POST /token/refresh-cookie
-  CorsFilter(외부 Origin 403) → CookieOriginConfig(Origin 없음 403) → AuthController
+POST /token/refresh {R1} → R1 폐기, R2 저장 → 200
+POST /token/refresh {R1} → 이미 폐기됨 → kdt01의 refresh 전부 폐기 → 401 (R2도 이제 401)
+POST /logout-cookie (Cookie R2) → R2 폐기 + 쿠키 삭제
 ```
-`csrf.disable()`은 그대로 둡니다. 쿠키로 인증하는 곳은 이 3개 경로뿐이고, 여기는 CSRF 토큰 대신 Origin 검사와 SameSite로 막습니다.
+재사용을 탐지했을 때 401을 던져도 폐기 결과는 저장돼야 하므로 `@Transactional(noRollbackFor = TokenFailedException.class)`를 씁니다.
+같은 refresh로 동시에 두 번 요청하면 둘 다 "아직 폐기 안 됨"을 볼 수 있으므로, `findByJti`에 행 잠금(`@Lock(PESSIMISTIC_WRITE)`)을 걸어 한 요청만 통과시킵니다.
 
-**확인**: `http/step-7.http` · `StepTest.cookieRequestWithoutOriginIsRejectedByOriginCheck`, `cookieRequestFromOtherOriginIsRejectedByCors`
+**확인**: `http/step-8.http` · `StepTest.rotatedRefreshCannotBeReused`, `reuseRevokesAllRefreshOfMember`, `concurrentReuseLetsOnlyOneThrough`, `logoutRevokesRefreshOnServer`
 
-**남은 문제**: 서버가 refresh를 저장하지 않아, 이미 복사된 refresh는 로그아웃해도 7일간 쓸 수 있습니다.
+## 결론
+
+세션 쿠키를 피해 토큰으로 갔지만, refresh를 지키려다 다시 쿠키를 쓰게 됐고, refresh를 회전·폐기하려다 다시 서버 상태(DB)가 필요해졌습니다. 그래서 최종 구조는 **매 요청은 무상태 access, 재발급만 서버가 기억하는 refresh 쿠키**인, 세션과 토큰을 섞은 형태입니다. HttpOnly는 refresh를 **읽지 못하게** 할 뿐이고 XSS 자체를 막지는 못합니다.
+
+## 최종 파일 지도
+
+| 파일 | 단계 | 해결한 문제 |
+|---|---|---|
+| `Post`, `PostService`, `PostApiController` | 0 | 글 API |
+| `Member`, `PasswordConfig`, `PostService.ownPost` | 1 | 회원·비밀번호 해시, 작성자만 수정·삭제 (401 → 404 → 403) |
+| `SessionStore` | 2 (3에서 삭제) | 서버가 로그인 기억 → `HttpSession`으로 대체 |
+| `MemberUserDetailsService`, `AuthenticationManagerConfig`, `PasswordAuthenticationService` | 3 | 비밀번호 확인을 Spring Security에 위임 |
+| `SecurityConfig` | 3 → 4 → 5 → 6 → 7 | URL 규칙·401/403 / STATELESS·필터 / 경로 / CORS |
+| `JwtService` | 4 → 5 | 저장 없이 신원 확인 / access·refresh 구분 |
+| `JwtAuthFilter` | 4 | Bearer → `@AuthenticationPrincipal` |
+| `TokenResponse`, `RefreshRequest` | 5 | 비밀번호 없이 재발급 |
+| `CookieAuthWriter`, `AccessTokenResponse` | 6 → 7 | refresh를 HttpOnly 쿠키로 / SameSite |
+| `CookieOriginConfig`, `SecurityCorsConfig` | 7 | 쿠키 요청 출처 확인 |
+| `RefreshToken`, `RefreshTokenRepository`, `AuthService` | 8 | refresh 회전·재사용 탐지·서버 로그아웃 |
+
+## 남은 과제
+
+| 과제 | 지금 상태 | 방향 |
+|---|---|---|
+| XSS 자체 방어 | HttpOnly는 읽기만 막음 | 출력 이스케이프(`textContent`), CSP |
+| 로그아웃 후 access | 최대 15분 유효 | 감수하거나 블랙리스트 |
+| 만료된 refresh 행 | DB에 계속 쌓임 | 스케줄러로 정리 |
+| 여러 기기 로그인 | 재사용을 탐지하면 전부 폐기 | 기기별 refresh 관리 |
+| 로그인 시도 제한 | 없음 | 실패 횟수 제한·지연 |
+| 운영 환경 | `Secure=false`, http | `Secure=true`, HTTPS |
+
+## 다음 과정 예고
+
+- 비밀번호를 우리 서버가 아예 받지 않는다면, 누가 신원을 확인할까?
+- 카카오가 "이 사람 맞다"고 해 주면, 그 사람은 우리 회원 테이블의 누구일까?
+- 그때도 지금 만든 access/refresh 구조를 그대로 쓸 수 있을까?

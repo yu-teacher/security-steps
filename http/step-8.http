@@ -1,0 +1,40 @@
+@base = http://localhost:8080
+
+### 1. 토큰 발급: 200 (refresh R1의 jti가 DB에 저장됨)
+POST {{base}}/api/v1/auth/token
+Content-Type: application/json
+
+{"loginId":"kdt01","password":"kdt1234"}
+
+> {% client.global.set("r1", response.body.refreshToken); %}
+
+### 2. R1로 재발급: 200 (R1 폐기, R2 저장)
+POST {{base}}/api/v1/auth/token/refresh
+Content-Type: application/json
+
+{"refreshToken":"{{r1}}"}
+
+> {% client.global.set("r2", response.body.refreshToken); %}
+
+### 3. R1 재사용: 401 (탈취로 보고 kdt01의 refresh 전부 폐기)
+POST {{base}}/api/v1/auth/token/refresh
+Content-Type: application/json
+
+{"refreshToken":"{{r1}}"}
+
+### 4. R2도 401 (3번에서 함께 폐기됨)
+POST {{base}}/api/v1/auth/token/refresh
+Content-Type: application/json
+
+{"refreshToken":"{{r2}}"}
+
+### 5. 쿠키 로그인 후 로그아웃: 204 (쿠키 삭제 + 서버 폐기)
+POST {{base}}/api/v1/auth/token-cookie
+Origin: http://localhost:8080
+Content-Type: application/json
+
+{"loginId":"kdt01","password":"kdt1234"}
+
+###
+POST {{base}}/api/v1/auth/logout-cookie
+Origin: http://localhost:8080

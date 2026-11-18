@@ -53,7 +53,9 @@ public class AuthController {
 
     @PostMapping("/logout-cookie")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void logoutCookie(HttpServletResponse response) {
+    public void logoutCookie(@CookieValue(name = CookieAuthWriter.REFRESH, required = false) String refreshToken,
+                             HttpServletResponse response) {
+        authService.logout(refreshToken);
         cookieAuthWriter.clearRefresh(response);
     }
 
