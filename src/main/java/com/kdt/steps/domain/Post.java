@@ -14,20 +14,20 @@ public class Post {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, length = 50)
-    private String author;
-
     @Column(nullable = false, length = 200)
     private String title;
 
     @Column(nullable = false, length = 10000)
     private String body;
 
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    private Member member;
+
     @Builder
-    private Post(String author, String title, String body) {
-        this.author = author;
+    private Post(String title, String body, Member member) {
         this.title = title;
         this.body = body;
+        this.member = member;
     }
 
     public void edit(String title, String body) {

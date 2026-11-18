@@ -1,9 +1,13 @@
 package com.kdt.steps.service;
 
+import com.kdt.steps.domain.Member;
 import com.kdt.steps.domain.Post;
 import com.kdt.steps.dto.PostResponse;
 import com.kdt.steps.dto.PostWriteRequest;
+import com.kdt.steps.exception.ForbiddenException;
 import com.kdt.steps.exception.NotFoundException;
+import com.kdt.steps.exception.UnauthorizedException;
+import com.kdt.steps.repository.MemberRepository;
 import com.kdt.steps.repository.PostRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
@@ -17,15 +21,16 @@ import java.util.List;
 @Transactional(readOnly = true)
 public class PostService {
     private final PostRepository postRepository;
+    private final MemberRepository memberRepository;
 
     public List<PostResponse> list() {
         return postRepository.findAll(Sort.by("id")).stream().map(PostResponse::from).toList();
     }
 
     @Transactional
-    public PostResponse create(PostWriteRequest request) {
+    public PostResponse create(String loginId, PostWriteRequest request) {
         Post post = Post.builder()
-                        .author(request.author())
+                        .member(caller(loginId))
                         .title(request.title())
                         .body(request.body())
                         .build();
@@ -33,18 +38,28 @@ public class PostService {
     }
 
     @Transactional
-    public PostResponse update(Long id, PostWriteRequest request) {
-        Post post = find(id);
+    public PostResponse update(String loginId, Long id, PostWriteRequest request) {
+        Post post = ownPost(loginId, id);
         post.edit(request.title(), request.body());
         return PostResponse.from(post);
     }
 
     @Transactional
-    public void delete(Long id) {
-        postRepository.delete(find(id));
+    public void delete(String loginId, Long id) {
+        postRepository.delete(ownPost(loginId, id));
     }
 
-    private Post find(Long id) {
-        return postRepository.findById(id).orElseThrow(() -> new NotFoundException("post missing"));
+    private Member caller(String loginId) {
+        return memberRepository.findByLoginId(loginId)
+                               .orElseThrow(() -> new UnauthorizedException("unknown member"));
+    }
+
+    private Post ownPost(String loginId, Long id) {
+        Member caller = caller(loginId);
+        Post post = postRepository.findById(id).orElseThrow(() -> new NotFoundException("post missing"));
+        if (!post.getMember().getId().equals(caller.getId())) {
+            throw new ForbiddenException();
+        }
+        return post;
     }
 }

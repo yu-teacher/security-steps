@@ -10,8 +10,8 @@
 
 | 단계 | 문제 | 해결 | 얻은 것 | 잃은 것 |
 |---|---|---|---|---|
-| **step-0** | — | 검증 없는 글 API | 가장 단순함 | 누가 요청했는지 모름 |
-| step-1 | 누가 요청했는지 모름 | 회원 + 비밀번호 해시 로그인 | 로그인 확인 | 작성자를 클라이언트가 주장 |
+| step-0 | — | 검증 없는 글 API | 가장 단순함 | 누가 요청했는지 모름 |
+| **step-1** | 누가 요청했는지 모름 | 회원 + 비밀번호 해시 로그인 | 로그인 확인 | 작성자를 클라이언트가 주장 |
 | step-2 | 서버가 로그인을 기억하지 않음 | 메모리 Map + SID 쿠키 | 서버가 작성자 결정 | 만료·CSRF·인가를 직접 처리 |
 | step-3 | 직접 만든 세션의 반복 코드·구멍 | Spring Security + HttpSession | 검증된 인증·인가 흐름 | 서버 상태, CSRF 토큰 필요 |
 | step-4 | 서버가 세션 저장 | JWT + JwtAuthFilter | 무상태, 헤더라 CSRF 없음 | 털리면 만료까지 유효 |
@@ -24,19 +24,22 @@
 
 ---
 
-## step-0: 아무 검증도 없는 글 API
+## step-1: 회원과 비밀번호 로그인을 넣는다
 
-**출발점.** 글에는 `author` 문자열만 있고, 누구나 작성·수정·삭제할 수 있습니다. 회원도 로그인도 없습니다.
+**이전 문제**: 누가 요청했는지 알 수 없음
+**해결**: 회원 테이블과 BCrypt 비밀번호 로그인을 넣고, 글은 `author` 문자열 대신 `Member`와 연결한다. 작성자만 수정·삭제하도록 검사한다.
 
-**파일**: `Post`, `PostRepository`, `PostService`, `PostApiController`, `PostWriteRequest`, `PostResponse`, `ApiExceptionAdvice`
+**파일** (`git diff step-0 step-1`)
+- `Member`, `MemberRepository`, `PasswordConfig`(BCrypt), `SeedRunner`(kdt01·kdt02)
+- `AuthService.login`, `AuthController`(`POST /login`)
+- `PostService.ownPost`: 회원 401 → 글 404 → 작성자 403 (이 흐름은 끝까지 유지)
 
 **요청 흐름**
 ```
-POST   /api/v1/posts {author, title, body} → 201
-PUT    /api/v1/posts/1                      → 200 (누가 보냈는지 확인 안 함)
-DELETE /api/v1/posts/1                      → 204
+POST /api/v1/auth/login        → matches → 200 (끝, 아무것도 저장 안 함)
+PUT  /api/v1/posts/1 {loginId} → body의 loginId를 그대로 믿고 작성자 비교
 ```
 
-**확인**: `http/step-0.http` · `StepTest.problem_anyoneCanEditOthersPost`, `problem_anyoneCanDeleteOthersPost`
+**확인**: `http/step-1.http` · `StepTest.problem_anyoneCanClaimAnotherLoginId`
 
-**남은 문제**: 서버는 **누가 요청했는지 알 수 없습니다.** `author`는 클라이언트가 적은 글자일 뿐입니다. 다음 단계에서 회원과 비밀번호 로그인을 넣습니다.
+**남은 문제**: 로그인 결과를 서버가 기억하지 않으니, kdt02가 body에 `"loginId":"kdt01"`만 넣으면 남의 글을 고칩니다. 작성자는 **서버가** 로그인 결과로 정해야 합니다.

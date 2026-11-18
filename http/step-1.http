@@ -1,0 +1,25 @@
+@base = http://localhost:8080
+
+### 1. 로그인: 200 (비밀번호만 확인하고 아무것도 기억하지 않음)
+POST {{base}}/api/v1/auth/login
+Content-Type: application/json
+
+{"loginId":"kdt01","password":"kdt1234"}
+
+### 2. kdt01 글 작성: 201 (누가 쓰는지는 body의 loginId로 받음)
+POST {{base}}/api/v1/posts
+Content-Type: application/json
+
+{"loginId":"kdt01","title":"kdt01의 글","body":"원본"}
+
+### 3. kdt02가 솔직하게 수정: 403
+PUT {{base}}/api/v1/posts/1
+Content-Type: application/json
+
+{"loginId":"kdt02","title":"수정","body":"수정"}
+
+### 4. 문제: kdt02가 loginId만 kdt01로 바꾸면 200
+PUT {{base}}/api/v1/posts/1
+Content-Type: application/json
+
+{"loginId":"kdt01","title":"kdt02가 고침","body":"비밀번호 없이 남의 글 수정"}

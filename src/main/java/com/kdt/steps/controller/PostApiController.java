@@ -24,17 +24,17 @@ public class PostApiController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public PostResponse create(@Valid @RequestBody PostWriteRequest request) {
-        return postService.create(request);
+        return postService.create(request.loginId(), request);
     }
 
     @PutMapping("/{id}")
     public PostResponse update(@PathVariable Long id, @Valid @RequestBody PostWriteRequest request) {
-        return postService.update(id, request);
+        return postService.update(request.loginId(), id, request);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable Long id) {
-        postService.delete(id);
+    public void delete(@PathVariable Long id, @RequestParam String loginId) {
+        postService.delete(loginId, id);
     }
 }
