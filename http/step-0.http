@@ -1,0 +1,19 @@
+@base = http://localhost:8080
+
+### 1. 글 작성: 201 (작성자 이름은 아무거나)
+POST {{base}}/api/v1/posts
+Content-Type: application/json
+
+{"author":"kdt01","title":"kdt01의 글","body":"원본"}
+
+### 2. 목록: 200
+GET {{base}}/api/v1/posts
+
+### 3. 문제: 아무나 수정 200
+PUT {{base}}/api/v1/posts/1
+Content-Type: application/json
+
+{"author":"kdt02","title":"남이 고침","body":"검증 없음"}
+
+### 4. 문제: 아무나 삭제 204
+DELETE {{base}}/api/v1/posts/1
