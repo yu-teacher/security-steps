@@ -1,0 +1,28 @@
+@base = http://localhost:8080
+
+### 1. 쿠키 로그인: 200 {accessToken} + Set-Cookie: refreshToken=...; Path=/api/v1/auth; HttpOnly
+POST {{base}}/api/v1/auth/token-cookie
+Content-Type: application/json
+
+{"loginId":"kdt01","password":"kdt1234"}
+
+> {% client.global.set("access", response.body.accessToken); %}
+
+### 2. access로 내 정보: 200 (access는 여전히 Authorization 헤더, refresh 쿠키는 Path 밖이라 안 붙음)
+GET {{base}}/api/v1/auth/me
+Authorization: Bearer {{access}}
+
+### 3. 쿠키로 재발급: 200 새 access + 새 refresh 쿠키 (body 없음, 쿠키가 자동으로 붙음)
+POST {{base}}/api/v1/auth/token/refresh-cookie
+
+> {% client.global.set("access", response.body.accessToken); %}
+
+### 4. 로그아웃: 204 + Set-Cookie: refreshToken=; Max-Age=0
+POST {{base}}/api/v1/auth/logout-cookie
+
+### 5. 로그아웃 후 재발급: 401 (쿠키가 지워졌으므로)
+POST {{base}}/api/v1/auth/token/refresh-cookie
+
+### 6. 문제: 다른 사이트에서 보낸 요청에도 쿠키가 붙으면 200 (1번 다시 실행 후)
+POST {{base}}/api/v1/auth/token/refresh-cookie
+Origin: https://evil.example
