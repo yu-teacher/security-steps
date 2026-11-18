@@ -1,0 +1,43 @@
+@base = http://localhost:8080
+
+### 1. CSRF 토큰 받기: 200 (세션 생성, JSESSIONID 쿠키는 HTTP Client가 자동 저장)
+GET {{base}}/api/v1/auth/csrf
+
+> {% client.global.set("csrf", response.body.token); %}
+
+### 2. 로그인: 200 (세션 ID 교체 후 SecurityContext를 세션에 저장)
+POST {{base}}/api/v1/auth/login
+Content-Type: application/json
+X-CSRF-TOKEN: {{csrf}}
+
+{"loginId":"kdt01","password":"kdt1234"}
+
+### 3. 내 정보: 200 kdt01 (쿠키만 보내면 서버가 세션에서 꺼냄)
+GET {{base}}/api/v1/auth/me
+
+### 4. 글 작성: 201 (작성자는 세션의 loginId, body에 loginId 없음)
+POST {{base}}/api/v1/posts
+Content-Type: application/json
+X-CSRF-TOKEN: {{csrf}}
+
+{"title":"세션으로 쓴 글","body":"작성자는 서버가 정함"}
+
+### 5. CSRF 토큰 없이 쓰기: 403 (쿠키는 자동 전송되니 토큰으로 내 화면에서 온 요청인지 확인)
+POST {{base}}/api/v1/posts
+Content-Type: application/json
+
+{"title":"막혀야 함","body":"csrf 없음"}
+
+### 6. 로그아웃: 204 (세션 무효화)
+POST {{base}}/api/v1/auth/logout
+X-CSRF-TOKEN: {{csrf}}
+
+### 7. 로그아웃 후 내 정보: 401
+GET {{base}}/api/v1/auth/me
+
+### 8. kdt02로 kdt01 글 수정 시도: 1~2번을 kdt02로 다시 실행한 뒤 → 403 not the owner
+PUT {{base}}/api/v1/posts/1
+Content-Type: application/json
+X-CSRF-TOKEN: {{csrf}}
+
+{"title":"남의 글","body":"수정 시도"}

@@ -1,12 +1,12 @@
 package com.kdt.steps.controller;
 
-import com.kdt.steps.auth.SessionStore;
 import com.kdt.steps.dto.PostResponse;
 import com.kdt.steps.dto.PostWriteRequest;
 import com.kdt.steps.service.PostService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -16,7 +16,6 @@ import java.util.List;
 @RequiredArgsConstructor
 public class PostApiController {
     private final PostService postService;
-    private final SessionStore sessionStore;
 
     @GetMapping
     public List<PostResponse> list() {
@@ -25,20 +24,19 @@ public class PostApiController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public PostResponse create(@CookieValue(name = AuthController.SID, required = false) String sid,
-                               @Valid @RequestBody PostWriteRequest request) {
-        return postService.create(sessionStore.loginId(sid), request);
+    public PostResponse create(@AuthenticationPrincipal String loginId, @Valid @RequestBody PostWriteRequest request) {
+        return postService.create(loginId, request);
     }
 
     @PutMapping("/{id}")
-    public PostResponse update(@CookieValue(name = AuthController.SID, required = false) String sid,
-                               @PathVariable Long id, @Valid @RequestBody PostWriteRequest request) {
-        return postService.update(sessionStore.loginId(sid), id, request);
+    public PostResponse update(@AuthenticationPrincipal String loginId, @PathVariable Long id,
+                               @Valid @RequestBody PostWriteRequest request) {
+        return postService.update(loginId, id, request);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@CookieValue(name = AuthController.SID, required = false) String sid, @PathVariable Long id) {
-        postService.delete(sessionStore.loginId(sid), id);
+    public void delete(@AuthenticationPrincipal String loginId, @PathVariable Long id) {
+        postService.delete(loginId, id);
     }
 }

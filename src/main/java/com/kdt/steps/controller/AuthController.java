@@ -1,44 +1,53 @@
 package com.kdt.steps.controller;
 
-import com.kdt.steps.auth.SessionStore;
 import com.kdt.steps.dto.LoginRequest;
+import com.kdt.steps.dto.MeResponse;
 import com.kdt.steps.dto.MemberResponse;
 import com.kdt.steps.service.AuthService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseCookie;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.Duration;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
 public class AuthController {
-    public static final String SID = "SID";
-
     private final AuthService authService;
-    private final SessionStore sessionStore;
+    private final SecurityContextRepository securityContextRepository;
+
+    @GetMapping("/csrf")
+    public CsrfToken csrf(CsrfToken token) {
+        return token;
+    }
 
     @PostMapping("/login")
-    public MemberResponse login(@Valid @RequestBody LoginRequest request, HttpServletResponse response) {
+    public MemberResponse login(@Valid @RequestBody LoginRequest request,
+                                HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
         MemberResponse member = authService.login(request);
-        writeSid(response, sessionStore.create(member.loginId()), Duration.ofMinutes(30));
+        if (httpRequest.getSession(false) != null) {
+            httpRequest.changeSessionId();
+        }
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(
+                member.loginId(), null, List.of(new SimpleGrantedAuthority("ROLE_USER"))));
+        SecurityContextHolder.setContext(context);
+        securityContextRepository.saveContext(context, httpRequest, httpResponse);
         return member;
     }
 
-    @PostMapping("/logout")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void logout(@CookieValue(name = SID, required = false) String sid, HttpServletResponse response) {
-        sessionStore.remove(sid);
-        writeSid(response, "", Duration.ZERO);
-    }
-
-    private void writeSid(HttpServletResponse response, String value, Duration maxAge) {
-        ResponseCookie cookie = ResponseCookie.from(SID, value).httpOnly(true).path("/").maxAge(maxAge).build();
-        response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
+    @GetMapping("/me")
+    public MeResponse me(@AuthenticationPrincipal String loginId) {
+        return new MeResponse(loginId);
     }
 }
