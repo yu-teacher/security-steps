@@ -1,0 +1,28 @@
+@base = http://localhost:8080
+
+### 1. 로그인: 200 + Set-Cookie: SID=<UUID>; Path=/; HttpOnly (서버 Map에 SID → kdt01 저장)
+POST {{base}}/api/v1/auth/login
+Content-Type: application/json
+
+{"loginId":"kdt01","password":"kdt1234"}
+
+### 2. 글 작성: 201 (SID 쿠키 자동 첨부 → Map에서 kdt01 조회)
+POST {{base}}/api/v1/posts
+Content-Type: application/json
+
+{"title":"SID로 쓴 글","body":"작성자는 서버 Map이 정함"}
+
+### 3. body에 loginId를 넣어도 무시됨: 201, 작성자는 여전히 kdt01
+POST {{base}}/api/v1/posts
+Content-Type: application/json
+
+{"loginId":"kdt02","title":"주장 무시","body":"loginId 필드는 없음"}
+
+### 4. 로그아웃: 204 (Map에서 삭제 + 쿠키 삭제)
+POST {{base}}/api/v1/auth/logout
+
+### 5. 로그아웃 후 작성: 401 login required
+POST {{base}}/api/v1/posts
+Content-Type: application/json
+
+{"title":"막혀야 함","body":"SID 없음"}

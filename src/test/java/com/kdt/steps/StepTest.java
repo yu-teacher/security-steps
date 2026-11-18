@@ -1,5 +1,6 @@
 package com.kdt.steps;
 
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -7,8 +8,10 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.json.JsonMapper;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -19,36 +22,50 @@ class StepTest {
     private final JsonMapper json = JsonMapper.builder().build();
 
     @Test
-    void loginChecksPassword() throws Exception {
-        login("kdt01", "kdt1234").andExpect(status().isOk()).andExpect(jsonPath("$.loginId").value("kdt01"));
-        login("kdt01", "wrong").andExpect(status().isUnauthorized());
-    }
-
-    @Test
-    void honestOtherMemberIsForbidden() throws Exception {
-        long id = createPost("kdt01");
-        mvc.perform(put("/api/v1/posts/" + id).contentType("application/json")
-                       .content("{\"loginId\":\"kdt02\",\"title\":\"x\",\"body\":\"x\"}"))
-           .andExpect(status().isForbidden());
-    }
-
-    @Test
-    void problem_anyoneCanClaimAnotherLoginId() throws Exception {
-        long id = createPost("kdt01");
-        mvc.perform(put("/api/v1/posts/" + id).contentType("application/json")
-                       .content("{\"loginId\":\"kdt01\",\"title\":\"kdt02가 고침\",\"body\":\"비밀번호 없이\"}"))
+    void loginSetsHttpOnlySidCookie() throws Exception {
+        mvc.perform(post("/api/v1/auth/login").contentType("application/json")
+                       .content("{\"loginId\":\"kdt01\",\"password\":\"kdt1234\"}"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.title").value("kdt02가 고침"));
+           .andExpect(header().string("Set-Cookie", containsString("SID=")))
+           .andExpect(header().string("Set-Cookie", containsString("HttpOnly")));
     }
 
-    private org.springframework.test.web.servlet.ResultActions login(String loginId, String password) throws Exception {
+    @Test
+    void writeWithoutSidIs401() throws Exception {
+        mvc.perform(post("/api/v1/posts").contentType("application/json").content("{\"title\":\"t\",\"body\":\"b\"}"))
+           .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void authorComesFromServerMapSoOtherMemberIs403() throws Exception {
+        long id = createPost(login("kdt01"));
+        mvc.perform(put("/api/v1/posts/" + id).cookie(login("kdt02")).contentType("application/json")
+                       .content("{\"loginId\":\"kdt01\",\"title\":\"x\",\"body\":\"x\"}"))
+           .andExpect(status().isForbidden())
+           .andExpect(jsonPath("$.message").value("not the owner"));
+    }
+
+    @Test
+    void logoutRemovesSidFromServer() throws Exception {
+        Cookie sid = login("kdt01");
+        mvc.perform(post("/api/v1/auth/logout").cookie(sid))
+           .andExpect(status().isNoContent())
+           .andExpect(header().string("Set-Cookie", containsString("Max-Age=0")));
+        mvc.perform(post("/api/v1/posts").cookie(sid).contentType("application/json")
+                       .content("{\"title\":\"t\",\"body\":\"b\"}"))
+           .andExpect(status().isUnauthorized());
+    }
+
+    private Cookie login(String loginId) throws Exception {
         return mvc.perform(post("/api/v1/auth/login").contentType("application/json")
-                              .content("{\"loginId\":\"" + loginId + "\",\"password\":\"" + password + "\"}"));
+                              .content("{\"loginId\":\"" + loginId + "\",\"password\":\"kdt1234\"}"))
+                  .andExpect(status().isOk())
+                  .andReturn().getResponse().getCookie("SID");
     }
 
-    private long createPost(String loginId) throws Exception {
-        String body = mvc.perform(post("/api/v1/posts").contentType("application/json")
-                                     .content("{\"loginId\":\"" + loginId + "\",\"title\":\"원본\",\"body\":\"본문\"}"))
+    private long createPost(Cookie sid) throws Exception {
+        String body = mvc.perform(post("/api/v1/posts").cookie(sid).contentType("application/json")
+                                     .content("{\"title\":\"원본\",\"body\":\"본문\"}"))
                          .andExpect(status().isCreated())
                          .andReturn().getResponse().getContentAsString();
         return json.readTree(body).get("id").asLong();

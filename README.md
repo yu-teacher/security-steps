@@ -11,8 +11,8 @@
 | 단계 | 문제 | 해결 | 얻은 것 | 잃은 것 |
 |---|---|---|---|---|
 | step-0 | — | 검증 없는 글 API | 가장 단순함 | 누가 요청했는지 모름 |
-| **step-1** | 누가 요청했는지 모름 | 회원 + 비밀번호 해시 로그인 | 로그인 확인 | 작성자를 클라이언트가 주장 |
-| step-2 | 서버가 로그인을 기억하지 않음 | 메모리 Map + SID 쿠키 | 서버가 작성자 결정 | 만료·CSRF·인가를 직접 처리 |
+| step-1 | 누가 요청했는지 모름 | 회원 + 비밀번호 해시 로그인 | 로그인 확인 | 작성자를 클라이언트가 주장 |
+| **step-2** | 서버가 로그인을 기억하지 않음 | 메모리 Map + SID 쿠키 | 서버가 작성자 결정 | 만료·CSRF·인가를 직접 처리 |
 | step-3 | 직접 만든 세션의 반복 코드·구멍 | Spring Security + HttpSession | 검증된 인증·인가 흐름 | 서버 상태, CSRF 토큰 필요 |
 | step-4 | 서버가 세션 저장 | JWT + JwtAuthFilter | 무상태, 헤더라 CSRF 없음 | 털리면 만료까지 유효 |
 | step-5 | 긴 토큰 탈취 | access 15분 + refresh 7일 | access 노출 시간 축소 | refresh 저장 위치 문제 |
@@ -24,22 +24,25 @@
 
 ---
 
-## step-1: 회원과 비밀번호 로그인을 넣는다
+## step-2: 세션을 직접 만들어 본다 (메모리 Map + SID 쿠키)
 
-**이전 문제**: 누가 요청했는지 알 수 없음
-**해결**: 회원 테이블과 BCrypt 비밀번호 로그인을 넣고, 글은 `author` 문자열 대신 `Member`와 연결한다. 작성자만 수정·삭제하도록 검사한다.
+**이전 문제**: 서버가 로그인을 기억하지 않아 클라이언트가 아무 loginId나 주장함
+**해결**: 로그인에 성공하면 UUID(SID)를 만들어 서버 Map에 `SID → loginId`로 저장하고, SID는 HttpOnly 쿠키로 준다.
 
-**파일** (`git diff step-0 step-1`)
-- `Member`, `MemberRepository`, `PasswordConfig`(BCrypt), `SeedRunner`(kdt01·kdt02)
-- `AuthService.login`, `AuthController`(`POST /login`)
-- `PostService.ownPost`: 회원 401 → 글 404 → 작성자 403 (이 흐름은 끝까지 유지)
+**파일** (`git diff step-1 step-2`)
+- `SessionStore`: `ConcurrentHashMap<String, String>`, `create`, `loginId`, `remove`
+- `AuthController`: 로그인 시 `Set-Cookie: SID`, `POST /logout`
+- `PostApiController`: 메서드마다 `@CookieValue("SID")` → `sessionStore.loginId(sid)`
+- `PostWriteRequest`: `loginId` 삭제
 
 **요청 흐름**
 ```
-POST /api/v1/auth/login        → matches → 200 (끝, 아무것도 저장 안 함)
-PUT  /api/v1/posts/1 {loginId} → body의 loginId를 그대로 믿고 작성자 비교
+POST /login → 비밀번호 확인 → sessions.put(UUID, "kdt01") → Set-Cookie: SID=UUID; HttpOnly; Path=/
+PUT /posts/1 (Cookie: SID) → sessions.get(SID) → 없으면 401 → ownPost
+POST /logout → sessions.remove(SID) + 쿠키 삭제
 ```
+**JSESSIONID의 정체가 바로 이 Map의 키입니다.** 같은 값을 쿠키 대신 헤더로 보내면 교안 6-2의 API Key와 같은 구조입니다.
 
-**확인**: `http/step-1.http` · `StepTest.problem_anyoneCanClaimAnotherLoginId`
+**확인**: `http/step-2.http` · `StepTest.authorComesFromServerMapSoOtherMemberIs403`, `logoutRemovesSidFromServer`
 
-**남은 문제**: 로그인 결과를 서버가 기억하지 않으니, kdt02가 body에 `"loginId":"kdt01"`만 넣으면 남의 글을 고칩니다. 작성자는 **서버가** 로그인 결과로 정해야 합니다.
+**남은 문제**: 쿠키는 30분 뒤 사라져도 서버 Map의 SID는 지우기 전까지 남아, 훔친 SID가 계속 통하고 메모리도 쌓입니다. 또 쿠키라서 다른 사이트가 보낸 요청에도 자동으로 붙습니다(CSRF). 조회 코드가 모든 컨트롤러 메서드에 반복되고, URL 규칙과 401/403도 직접 만들어야 합니다. 그래서 step-3에서 이 일을 프레임워크에 맡깁니다.

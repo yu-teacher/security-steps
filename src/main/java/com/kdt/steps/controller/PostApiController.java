@@ -1,5 +1,6 @@
 package com.kdt.steps.controller;
 
+import com.kdt.steps.auth.SessionStore;
 import com.kdt.steps.dto.PostResponse;
 import com.kdt.steps.dto.PostWriteRequest;
 import com.kdt.steps.service.PostService;
@@ -15,6 +16,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class PostApiController {
     private final PostService postService;
+    private final SessionStore sessionStore;
 
     @GetMapping
     public List<PostResponse> list() {
@@ -23,18 +25,20 @@ public class PostApiController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public PostResponse create(@Valid @RequestBody PostWriteRequest request) {
-        return postService.create(request.loginId(), request);
+    public PostResponse create(@CookieValue(name = AuthController.SID, required = false) String sid,
+                               @Valid @RequestBody PostWriteRequest request) {
+        return postService.create(sessionStore.loginId(sid), request);
     }
 
     @PutMapping("/{id}")
-    public PostResponse update(@PathVariable Long id, @Valid @RequestBody PostWriteRequest request) {
-        return postService.update(request.loginId(), id, request);
+    public PostResponse update(@CookieValue(name = AuthController.SID, required = false) String sid,
+                               @PathVariable Long id, @Valid @RequestBody PostWriteRequest request) {
+        return postService.update(sessionStore.loginId(sid), id, request);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable Long id, @RequestParam String loginId) {
-        postService.delete(loginId, id);
+    public void delete(@CookieValue(name = AuthController.SID, required = false) String sid, @PathVariable Long id) {
+        postService.delete(sessionStore.loginId(sid), id);
     }
 }
